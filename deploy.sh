@@ -153,6 +153,33 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
+# Source .env to get OPENCLAW_IMAGE
+set -a
+source .env
+set +a
+
+# Check for OpenClaw image
+echo -e "${BLUE}Checking Docker image...${NC}"
+OPENCLAW_IMG="${OPENCLAW_IMAGE:-openclaw:local}"
+
+if [[ "$OPENCLAW_IMG" == *"ghcr.io"* ]] || [[ "$OPENCLAW_IMG" == *"/"* ]]; then
+    # Pre-built image from registry - will be pulled automatically
+    echo -e "${GREEN}✓ Using registry image: $OPENCLAW_IMG${NC}"
+else
+    # Local image - check if exists
+    if ! docker images "$OPENCLAW_IMG" --format "{{.Repository}}:{{.Tag}}" | grep -q "$OPENCLAW_IMG"; then
+        echo -e "${RED}✗ Error: Docker image not found: $OPENCLAW_IMG${NC}"
+        echo -e "${YELLOW}Build the image first:${NC}"
+        echo -e "  ${GREEN}./build-image.sh${NC}"
+        echo -e "  ${GREEN}or${NC}"
+        echo -e "  ${GREEN}docker build -t openclaw:local -f Dockerfile .${NC}"
+        echo -e "${YELLOW}Or use a pre-built image in .env:${NC}"
+        echo -e "  ${GREEN}OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:latest${NC}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ Local image found: $OPENCLAW_IMG${NC}"
+fi
+
 # Build final docker-compose command
 CMD="docker compose $COMPOSE_FILES"
 

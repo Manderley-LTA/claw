@@ -240,15 +240,79 @@ rcpro-app/                            (if luc-rcpro preset)
 
 ---
 
+## 🐳 Docker Image: openclaw:local
+
+**IMPORTANT:** Before deploying, you need a Docker image `openclaw:local`.
+
+This image includes all system dependencies for OpenClaw skills (jq, ripgrep, ffmpeg, Python, GitHub CLI, etc.).
+
+### Option A: Build Locally (Dev/Test) ⭐
+
+**Time:** ~5-10 min first time, then cached
+
+```bash
+# In claw-repo directory
+docker build -t openclaw:local -f Dockerfile .
+
+# Verify the image was built
+docker images | grep openclaw:local
+```
+
+**Pros:**
+- ✅ Full control over image
+- ✅ Can customize Dockerfile for your needs
+- ✅ All dependencies included
+
+**Cons:**
+- ❌ Takes time to build first time
+- ❌ ~2-3 GB disk space
+
+### Option B: Use Pre-built Image (Production) ⭐⭐
+
+**Time:** ~1-2 min (just pull)
+
+```bash
+# In .env, set:
+OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:latest
+
+# Or specific version:
+OPENCLAW_IMAGE=ghcr.io/openclaw/openclaw:v1.2.3
+```
+
+**Pros:**
+- ✅ Fast (no build time)
+- ✅ Official, tested image
+- ✅ Automatic updates available
+
+**Cons:**
+- ❌ Depends on network (must pull from GitHub)
+- ❌ Requires GitHub Container Registry access
+
+### Quick Start
+
+```bash
+# Easiest: Build locally first time
+docker build -t openclaw:local -f Dockerfile .
+
+# Then deploy
+./deploy.sh --preset lightweight
+```
+
+---
+
 ## ✅ Pre-Deployment Checklist
 
 Before running `./deploy.sh`:
 
+- [ ] **Docker image ready:**
+  - [ ] Either: `docker build -t openclaw:local -f Dockerfile .` (local build)
+  - [ ] Or: `OPENCLAW_IMAGE` set in `.env` (pre-built image)
 - [ ] All required docker-compose files copied
 - [ ] `.env` created from `.env.example`
 - [ ] `.env` edited with correct values:
   - [ ] `DOMAIN` = your actual domain
   - [ ] `ACME_EMAIL` = your email
+  - [ ] `OPENCLAW_IMAGE` = optional (defaults to `openclaw:local`)
   - [ ] All passwords generated: `openssl rand -hex 32`
   - [ ] All tokens generated
   - [ ] `RCPRO_*` variables if using luc-rcpro preset
