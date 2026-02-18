@@ -6,7 +6,7 @@ Deux configurations disponibles selon vos ressources :
 
 **Fichier :** `docker-compose.yml`
 
-**Services inclus (21 containers) :**
+**Services inclus (22 containers) :**
 - ✅ Traefik (reverse proxy HTTPS)
 - ✅ OpenClaw (gateway + CLI)
 - ✅ Portainer (gestion Docker)
@@ -21,6 +21,7 @@ Deux configurations disponibles selon vos ressources :
 - ✅ Duplicati (backups)
 - ✅ Vaultwarden (password manager)
 - ✅ Authentik (SSO/Identity provider)
+- ✅ SearXNG (meta-search engine)
 
 **Exclus du stack allégé :**
 - ❌ Supabase complet (remplacé par Postgres standalone)
@@ -34,7 +35,7 @@ Deux configurations disponibles selon vos ressources :
 
 **Fichier :** `docker-compose.full.yml`
 
-**Services additionnels (~38 containers) :**
+**Services additionnels (~39 containers) :**
 - ✅ **Supabase complet** (9 containers) :
   - postgres (avec pgvector)
   - studio (UI admin)
@@ -49,6 +50,7 @@ Deux configurations disponibles selon vos ressources :
 - ✅ **Elasticsearch + Kibana** (recherche full-text avancée)
 - ✅ **Gitea** (Git self-hosted avec DB dédiée)
 - ✅ **Ollama** (LLM local, nécessite GPU)
+- ✅ **SearXNG** (meta-search engine, inclus aussi dans stack allégé)
 
 ---
 
@@ -117,6 +119,7 @@ Tous les services sont accessibles via HTTPS sur votre domaine :
 | **Duplicati** | `https://votre-domaine.com/duplicati` | - |
 | **Vaultwarden** | `https://votre-domaine.com/vault` | Créer lors 1ère visite |
 | **Authentik** | `https://votre-domaine.com/auth` | Créer lors 1ère visite |
+| **SearXNG** | `https://votre-domaine.com/search` | Public (accès libre) |
 
 **Stack complet uniquement :**
 
@@ -125,6 +128,7 @@ Tous les services sont accessibles via HTTPS sur votre domaine :
 | **Supabase Studio** | `https://votre-domaine.com/supabase` | - |
 | **Kibana** | `https://votre-domaine.com/kibana` | elastic / ELASTIC_PASSWORD |
 | **Gitea** | `https://votre-domaine.com/git` | Créer lors 1ère visite |
+| **SearXNG** | `https://votre-domaine.com/search` | Public (inclus aussi dans stack allégé) |
 
 ---
 
@@ -160,7 +164,15 @@ Puis décommentez la section `cadvisor` dans `prometheus.yml`.
 sed -i "s/change-me-strong-password/$(openssl rand -hex 32)/g" .env
 sed -i "s/change-me-32-char-encryption-key/$(openssl rand -hex 16)/g" .env
 sed -i "s/change-me-50-char-secret-key/$(openssl rand -hex 25)/g" .env
+sed -i "s/change-me-searxng-secret-key/$(openssl rand -hex 32)/g" .env
 # etc.
+```
+
+**SearXNG (optionnel) :**
+```bash
+# Le secret SEARXNG_SECRET est utilisé pour chiffrer les sessions.
+# Par défaut, SearXNG active les moteurs de recherche courants (Google, Bing, DuckDuckGo, etc.)
+# Pour modifier les moteurs activés, éditer `/etc/searxng/settings.yml` dans le container.
 ```
 
 **BasicAuth pour Traefik Dashboard :**

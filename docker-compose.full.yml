@@ -782,6 +782,30 @@ services:
     depends_on:
       - gitea-db
 
+  # ============================================
+  # Search - SearXNG (Meta-search engine)
+  # ============================================
+  
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    volumes:
+      - searxng_data:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: https://${DOMAIN}/search
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.searxng.rule=Host(`${DOMAIN}`) && PathPrefix(`/search`)"
+      - "traefik.http.routers.searxng.entrypoints=websecure"
+      - "traefik.http.routers.searxng.tls.certresolver=letsencrypt"
+      - "traefik.http.services.searxng.loadbalancer.server.port=8888"
+      - "traefik.http.middlewares.searxng-strip.stripprefix.prefixes=/search"
+      - "traefik.http.routers.searxng.middlewares=searxng-strip"
+    networks:
+      - traefik-net
+
 # ============================================
 # Networks
 # ============================================
@@ -821,3 +845,4 @@ volumes:
   authentik_templates:
   gitea_db:
   gitea_data:
+  searxng_data:
