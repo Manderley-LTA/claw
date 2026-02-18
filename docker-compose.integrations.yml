@@ -1,0 +1,92 @@
+version: '3.8'
+
+# ============================================
+# OpenClaw Stack - Integrations & Automation
+# ============================================
+#
+# Services:
+# - n8n (workflow automation)
+# - Ollama (local LLM inference, GPU optional)
+#
+# RAM requirement: ~2-3 GB additional
+# GPU requirement: Optional (Ollama)
+#   - Without GPU: 0.5-2 tokens/sec
+#   - With GPU (NVIDIA): 50-100+ tokens/sec
+# Dependencies: postgres (shared from core stack)
+# Usage:
+#   docker compose -f docker-compose.core.yml -f docker-compose.integrations.yml up -d
+
+services:
+  # ============================================
+  # Workflow Automation - n8n
+  # ============================================
+  
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    environment:
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_PORT: 5432
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB}
+      DB_POSTGRESDB_USER: ${POSTGRES_USER}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      N8N_PATH: /n8n
+    volumes:
+      - n8n_data:/home/node/.n8n
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.n8n.rule=Host(`${DOMAIN}`) && PathPrefix(`/n8n`)"
+      - "traefik.http.routers.n8n.entrypoints=websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+      - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+    networks:
+      - traefik-net
+      - backend
+    depends_on:
+      - postgres
+
+  # ============================================
+  # Local LLM - Ollama (GPU optional)
+  # ============================================
+  
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - backend
+    
+    # Uncomment below if you have NVIDIA GPU available
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    
+    # WARNING: Ollama is CPU-only by default and very slow (0.5-2 tokens/sec)
+    # Only use with GPU for reasonable performance. Consider using remote LLM APIs instead.
+
+# ============================================
+# Networks (extend from core)
+# ============================================
+
+networks:
+  traefik-net:
+    external: true
+  backend:
+    external: true
+
+# ============================================
+# Volumes
+# ============================================
+
+volumes:
+  n8n_data:
+  ollama_data:

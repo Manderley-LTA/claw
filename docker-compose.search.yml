@@ -1,0 +1,101 @@
+version: '3.8'
+
+# ============================================
+# OpenClaw Stack - Search Engines
+# ============================================
+#
+# Services:
+# - SearXNG (meta-search engine)
+# - Elasticsearch (full-text search)
+# - Kibana (Elasticsearch UI)
+#
+# RAM requirement: ~2-4 GB additional
+# Usage:
+#   docker compose -f docker-compose.core.yml -f docker-compose.search.yml up -d
+
+services:
+  # ============================================
+  # Meta-Search Engine - SearXNG
+  # ============================================
+  
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    restart: unless-stopped
+    volumes:
+      - searxng_data:/etc/searxng
+    environment:
+      SEARXNG_BASE_URL: https://${DOMAIN}/search
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.searxng.rule=Host(`${DOMAIN}`) && PathPrefix(`/search`)"
+      - "traefik.http.routers.searxng.entrypoints=websecure"
+      - "traefik.http.routers.searxng.tls.certresolver=letsencrypt"
+      - "traefik.http.services.searxng.loadbalancer.server.port=8888"
+      - "traefik.http.middlewares.searxng-strip.stripprefix.prefixes=/search"
+      - "traefik.http.routers.searxng.middlewares=searxng-strip"
+    networks:
+      - traefik-net
+
+  # ============================================
+  # Search - Elasticsearch
+  # ============================================
+  
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.3
+    container_name: elasticsearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms1g -Xmx2g"
+      - xpack.security.enabled=true
+      - ELASTIC_PASSWORD=${ELASTIC_PASSWORD}
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    networks:
+      - backend
+
+  # ============================================
+  # Search UI - Kibana
+  # ============================================
+  
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.3
+    container_name: kibana
+    restart: unless-stopped
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+      ELASTICSEARCH_USERNAME: elastic
+      ELASTICSEARCH_PASSWORD: ${ELASTIC_PASSWORD}
+      SERVER_BASEPATH: /kibana
+      SERVER_REWRITEBASEPATH: "true"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kibana.rule=Host(`${DOMAIN}`) && PathPrefix(`/kibana`)"
+      - "traefik.http.routers.kibana.entrypoints=websecure"
+      - "traefik.http.routers.kibana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.kibana.loadbalancer.server.port=5601"
+    networks:
+      - traefik-net
+      - backend
+    depends_on:
+      - elasticsearch
+
+# ============================================
+# Networks (extend from core)
+# ============================================
+
+networks:
+  traefik-net:
+    external: true
+  backend:
+    external: true
+
+# ============================================
+# Volumes
+# ============================================
+
+volumes:
+  searxng_data:
+  elasticsearch_data:

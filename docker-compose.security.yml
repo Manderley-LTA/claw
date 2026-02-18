@@ -1,0 +1,165 @@
+version: '3.8'
+
+# ============================================
+# OpenClaw Stack - Security & Backups
+# ============================================
+#
+# Services:
+# - Vaultwarden (password manager)
+# - Authentik (SSO / Identity Provider)
+# - Duplicati (backup solution)
+#
+# RAM requirement: ~2-3 GB additional
+# Dependencies: postgres (shared from core stack), authentik-db, authentik-redis
+# Usage:
+#   docker compose -f docker-compose.core.yml -f docker-compose.security.yml up -d
+
+services:
+  # ============================================
+  # Backup - Duplicati
+  # ============================================
+  
+  duplicati:
+    image: duplicati/duplicati:latest
+    container_name: duplicati
+    restart: unless-stopped
+    environment:
+      PUID: 1000
+      PGID: 1000
+    volumes:
+      - duplicati_config:/config
+      - duplicati_backups:/backups
+      - /var/lib/docker/volumes:/source:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.duplicati.rule=Host(`${DOMAIN}`) && PathPrefix(`/duplicati`)"
+      - "traefik.http.routers.duplicati.entrypoints=websecure"
+      - "traefik.http.routers.duplicati.tls.certresolver=letsencrypt"
+      - "traefik.http.services.duplicati.loadbalancer.server.port=8200"
+      - "traefik.http.middlewares.duplicati-strip.stripprefix.prefixes=/duplicati"
+      - "traefik.http.routers.duplicati.middlewares=duplicati-strip"
+    networks:
+      - traefik-net
+
+  # ============================================
+  # Password Manager - Vaultwarden
+  # ============================================
+  
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    environment:
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      DOMAIN: https://${DOMAIN}/vault
+    volumes:
+      - vaultwarden_data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vault.rule=Host(`${DOMAIN}`) && PathPrefix(`/vault`)"
+      - "traefik.http.routers.vault.entrypoints=websecure"
+      - "traefik.http.routers.vault.tls.certresolver=letsencrypt"
+      - "traefik.http.services.vault.loadbalancer.server.port=80"
+      - "traefik.http.middlewares.vault-strip.stripprefix.prefixes=/vault"
+      - "traefik.http.routers.vault.middlewares=vault-strip"
+    networks:
+      - traefik-net
+
+  # ============================================
+  # SSO / Identity Provider - Authentik
+  # ============================================
+  
+  authentik-db:
+    image: postgres:15-alpine
+    container_name: authentik-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: authentik
+      POSTGRES_USER: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+    volumes:
+      - authentik_db:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  authentik-redis:
+    image: redis:7-alpine
+    container_name: authentik-redis
+    restart: unless-stopped
+    networks:
+      - backend
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: authentik-server
+    restart: unless-stopped
+    command: server
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+    volumes:
+      - authentik_media:/media
+      - authentik_templates:/templates
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.authentik.rule=Host(`${DOMAIN}`) && PathPrefix(`/auth`)"
+      - "traefik.http.routers.authentik.entrypoints=websecure"
+      - "traefik.http.routers.authentik.tls.certresolver=letsencrypt"
+      - "traefik.http.services.authentik.loadbalancer.server.port=9000"
+      - "traefik.http.middlewares.authentik-strip.stripprefix.prefixes=/auth"
+      - "traefik.http.routers.authentik.middlewares=authentik-strip"
+    networks:
+      - traefik-net
+      - backend
+    depends_on:
+      - authentik-db
+      - authentik-redis
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:latest
+    container_name: authentik-worker
+    restart: unless-stopped
+    command: worker
+    environment:
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+      AUTHENTIK_REDIS__HOST: authentik-redis
+      AUTHENTIK_POSTGRESQL__HOST: authentik-db
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_POSTGRES_PASSWORD}
+    volumes:
+      - authentik_media:/media
+      - authentik_certs:/certs
+      - authentik_templates:/templates
+    networks:
+      - backend
+    depends_on:
+      - authentik-db
+      - authentik-redis
+
+# ============================================
+# Networks (extend from core)
+# ============================================
+
+networks:
+  traefik-net:
+    external: true
+  backend:
+    external: true
+
+# ============================================
+# Volumes
+# ============================================
+
+volumes:
+  duplicati_config:
+  duplicati_backups:
+  vaultwarden_data:
+  authentik_db:
+  authentik_media:
+  authentik_certs:
+  authentik_templates:

@@ -1,0 +1,84 @@
+version: '3.8'
+
+# ============================================
+# OpenClaw Stack - Git Server
+# ============================================
+#
+# Services:
+# - Gitea (self-hosted Git platform)
+# - gitea-db (PostgreSQL database for Gitea)
+#
+# RAM requirement: ~1-2 GB additional
+# Dependencies: PostgreSQL (dedicated instance for Gitea)
+# Usage:
+#   docker compose -f docker-compose.core.yml -f docker-compose.git.yml up -d
+
+services:
+  # ============================================
+  # Git Server Database - Gitea DB
+  # ============================================
+  
+  gitea-db:
+    image: postgres:15-alpine
+    container_name: gitea-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: gitea
+      POSTGRES_USER: gitea
+      POSTGRES_PASSWORD: ${GITEA_DB_PASSWORD}
+    volumes:
+      - gitea_db:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  # ============================================
+  # Git Server - Gitea
+  # ============================================
+  
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gitea
+    restart: unless-stopped
+    environment:
+      USER_UID: 1000
+      USER_GID: 1000
+      GITEA__database__DB_TYPE: postgres
+      GITEA__database__HOST: gitea-db:5432
+      GITEA__database__NAME: gitea
+      GITEA__database__USER: gitea
+      GITEA__database__PASSWD: ${GITEA_DB_PASSWORD}
+      GITEA__server__ROOT_URL: https://${DOMAIN}/git
+      GITEA__server__DOMAIN: ${DOMAIN}
+    volumes:
+      - gitea_data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.gitea.rule=Host(`${DOMAIN}`) && PathPrefix(`/git`)"
+      - "traefik.http.routers.gitea.entrypoints=websecure"
+      - "traefik.http.routers.gitea.tls.certresolver=letsencrypt"
+      - "traefik.http.services.gitea.loadbalancer.server.port=3000"
+    networks:
+      - traefik-net
+      - backend
+    depends_on:
+      - gitea-db
+
+# ============================================
+# Networks (extend from core)
+# ============================================
+
+networks:
+  traefik-net:
+    external: true
+  backend:
+    external: true
+
+# ============================================
+# Volumes
+# ============================================
+
+volumes:
+  gitea_db:
+  gitea_data:
