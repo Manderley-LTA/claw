@@ -1,0 +1,196 @@
+version: '3.9'
+
+# ============================================
+# RC Pro App - Integration into OpenClaw Stack
+# ============================================
+#
+# This file EXTENDS your docker-compose.yml or docker-compose.full.yml
+# It reuses postgres, redis, minio, traefik already defined in the main stack.
+#
+# Usage (lightweight stack):
+#   docker compose -f docker-compose.yml -f docker-compose.rcpro.yml up -d
+#
+# Usage (full stack):
+#   docker compose -f docker-compose.full.yml -f docker-compose.rcpro.yml up -d
+#
+# Prerequisites:
+#   - Main OpenClaw stack must be running first
+#   - RC Pro code must be available at ../rcpro-app/ (relative path)
+#   - All RCPRO_* variables must be set in .env
+# ============================================
+
+services:
+  # ============================================
+  # RC Pro Backend - API Express.js
+  # ============================================
+  
+  rcpro-backend:
+    image: node:22-alpine
+    container_name: rcpro-backend
+    restart: unless-stopped
+    working_dir: /app
+    
+    # Development mode: volume-mounted source code
+    # For production: replace with pre-built image or build: context
+    command: sh -c "npm install && npm run dev"
+    volumes:
+      - ${RCPRO_BACKEND_PATH:-../rcpro-app/backend}:/app
+      - /app/node_modules  # Anonymous volume to prevent host node_modules from overriding
+    
+    environment:
+      # API Configuration
+      NODE_ENV: ${RCPRO_NODE_ENV:-production}
+      PORT: 3000
+      API_PREFIX: /api/v1
+      
+      # JWT & Security
+      JWT_ACCESS_SECRET: ${RCPRO_JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${RCPRO_JWT_REFRESH_SECRET}
+      JWT_ACCESS_TTL: ${RCPRO_JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${RCPRO_JWT_REFRESH_TTL:-30d}
+      JWT_REFRESH_TTL_SQL: ${RCPRO_JWT_REFRESH_TTL_SQL:-30 days}
+      BCRYPT_ROUNDS: ${RCPRO_BCRYPT_ROUNDS:-12}
+      
+      # Database (reuses main stack postgres)
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${RCPRO_DB_NAME:-rcpro}
+      
+      # Cache (reuses main stack redis)
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      
+      # File Storage (reuses main stack minio)
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${RCPRO_S3_REGION:-eu-west-1}
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${RCPRO_S3_BUCKET:-rcpro-docs}
+      S3_FORCE_PATH_STYLE: "true"
+      
+      # Internal Services
+      MAX_FILE_MB: ${RCPRO_MAX_FILE_MB:-25}
+      REPORT_JOB_TIMEOUT_MS: ${RCPRO_REPORT_JOB_TIMEOUT_MS:-120000}
+      DOCX_SERVICE_URL: http://rcpro-docx-service:8000
+      
+      # OpenClaw Integration (agents orchestration)
+      OPENCLAW_GATEWAY_URL: http://openclaw-gateway:18789${OPENCLAW_BASE_PATH:-/alk}
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN}
+      
+      # Bootstrap Admin User
+      ADMIN_EMAIL: ${RCPRO_ADMIN_EMAIL:-admin@rcpro.local}
+      ADMIN_PASSWORD: ${RCPRO_ADMIN_PASSWORD}
+      ADMIN_NAME: ${RCPRO_ADMIN_NAME:-Admin RC Pro}
+    
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rcpro-api.rule=Host(`${DOMAIN}`) && PathPrefix(`/rcpro/api`)"
+      - "traefik.http.routers.rcpro-api.entrypoints=websecure"
+      - "traefik.http.routers.rcpro-api.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rcpro-api.loadbalancer.server.port=3000"
+      # Path rewrite: /rcpro/api/v1/* → /api/v1/*
+      - "traefik.http.middlewares.rcpro-api-strip.stripprefix.prefixes=/rcpro"
+      - "traefik.http.routers.rcpro-api.middlewares=rcpro-api-strip"
+    
+    networks:
+      - traefik-net
+      - backend
+    
+    depends_on:
+      - postgres
+      - redis
+      - minio
+      - rcpro-docx-service
+    
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================
+  # RC Pro Frontend - Next.js
+  # ============================================
+  
+  rcpro-frontend:
+    image: node:22-alpine
+    container_name: rcpro-frontend
+    restart: unless-stopped
+    working_dir: /app
+    
+    # Development mode: volume-mounted source code
+    command: sh -c "npm install && npm run dev"
+    volumes:
+      - ${RCPRO_FRONTEND_PATH:-../rcpro-app/frontend}:/app
+      - /app/node_modules      # Anonymous volume
+      - /app/.next              # Next.js cache
+    
+    environment:
+      # API Backend URL (internal resolution)
+      NEXT_PUBLIC_API_URL: https://${DOMAIN}/rcpro/api/v1
+      NODE_ENV: ${RCPRO_NODE_ENV:-production}
+    
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.rcpro.rule=Host(`${DOMAIN}`) && PathPrefix(`/rcpro`)"
+      - "traefik.http.routers.rcpro.entrypoints=websecure"
+      - "traefik.http.routers.rcpro.tls.certresolver=letsencrypt"
+      - "traefik.http.services.rcpro.loadbalancer.server.port=3000"
+      # Path rewrite: /rcpro/* → /*
+      - "traefik.http.middlewares.rcpro-strip.stripprefix.prefixes=/rcpro"
+      - "traefik.http.routers.rcpro.middlewares=rcpro-strip"
+    
+    networks:
+      - traefik-net
+      - backend
+    
+    depends_on:
+      - rcpro-backend
+    
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ============================================
+  # RC Pro Docx Service - Python Flask
+  # ============================================
+  
+  rcpro-docx-service:
+    image: python:3.11-slim
+    container_name: rcpro-docx-service
+    restart: unless-stopped
+    working_dir: /app
+    
+    # Development mode: volume-mounted source code
+    command: sh -c "pip install --no-cache-dir -r requirements.txt && python app.py"
+    volumes:
+      - ${RCPRO_DOCX_PATH:-../rcpro-app/docx-service}:/app
+    
+    environment:
+      FLASK_ENV: ${RCPRO_NODE_ENV:-production}
+      PORT: 8000
+    
+    # Not exposed publicly (internal backend communication only)
+    expose:
+      - "8000"
+    
+    networks:
+      - backend
+    
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+# ============================================
+# Networks (extend from main stack)
+# ============================================
+
+networks:
+  traefik-net:
+    external: true  # Reuse main stack's Traefik network
+  backend:
+    external: true  # Reuse main stack's backend network

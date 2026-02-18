@@ -1,6 +1,13 @@
 # OpenClaw Docker Stack
 
-Deux configurations disponibles selon vos ressources :
+Docker stack complet pour déployer OpenClaw et ses services associés.
+
+**Configurations disponibles :**
+- Stack allégé (12 GB RAM) — Recommandé
+- Stack complet (32+ GB RAM) — Avec Supabase, Elasticsearch, Gitea, Ollama
+- **Optionnel :** Intégration RC Pro App (expertise responsabilité civile)
+
+Deux configurations de base selon vos ressources :
 
 ## 🪶 Stack Allégé (docker-compose.yml) - 12 GB RAM
 
@@ -287,6 +294,96 @@ docker-compose up -d --force-recreate --scale nom_du_service=1
 
 ---
 
+## 🚀 Intégration RC Pro App (Optionnel)
+
+**RC Pro** est une application d'expertise responsabilité civile qui peut être intégrée au stack OpenClaw.
+
+### Prérequis
+
+- Stack OpenClaw déjà déployé (voir ci-dessus)
+- Repo `rcpro-app` disponible (chemin : `../rcpro-app/` par défaut)
+- Variables `RCPRO_*` configurées dans `.env`
+
+### Configuration
+
+**1. Récupérer le repo rcpro-app :**
+```bash
+cd /dossier/parent/du/claw-repo
+git clone <url-rcpro-app>
+# Structure:
+# .
+# ├── claw-repo/
+# │   ├── docker-compose.yml
+# │   ├── docker-compose.rcpro.yml
+# │   ├── .env
+# │   └── ...
+# └── rcpro-app/
+#     ├── backend/
+#     ├── frontend/
+#     └── docx-service/
+```
+
+**2. Ajouter variables RCPRO_* dans `.env` :**
+```bash
+# Copier depuis .env.example (section RC Pro App)
+RCPRO_JWT_ACCESS_SECRET=$(openssl rand -hex 32)
+RCPRO_JWT_REFRESH_SECRET=$(openssl rand -hex 32)
+RCPRO_ADMIN_PASSWORD=change-me-strong-password
+# ... autres variables
+```
+
+**3. Initialiser la base de données RC Pro :**
+```bash
+# Exécuter les migrations dans Postgres (via stack OpenClaw)
+cd ../rcpro-app
+cat migrations/*.sql | docker compose -f /path/to/docker-compose.yml exec -T postgres psql -U ${POSTGRES_USER} -d ${RCPRO_DB_NAME}
+```
+
+### Démarrage
+
+**Incluire RC Pro au démarrage :**
+```bash
+# Stack allégé + RC Pro
+docker compose -f docker-compose.yml -f docker-compose.rcpro.yml up -d
+
+# Stack complet + RC Pro
+docker compose -f docker-compose.full.yml -f docker-compose.rcpro.yml up -d
+```
+
+### URLs RC Pro
+
+| Service | URL |
+|---------|-----|
+| **Frontend** | `https://votre-domaine.com/rcpro` |
+| **API** | `https://votre-domaine.com/rcpro/api/v1` |
+| **Health** | `https://votre-domaine.com/rcpro/api/v1/health` |
+
+### Arrêt
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.rcpro.yml down
+```
+
+### Logs
+
+```bash
+# Tous les services RC Pro
+docker compose logs rcpro-backend rcpro-frontend rcpro-docx-service
+
+# Service spécifique
+docker compose logs rcpro-backend -f
+```
+
+### Notes
+
+- **Réutilise Postgres, Redis, MinIO** du stack OpenClaw (zéro redondance)
+- **Mode dev** : code volume-mounted (`npm install && npm run dev`)
+  - Pour production, remplacer par images pré-buildées
+- **OpenClaw agents** : RC Pro peut orchestrer les 7 agents RC Pro via `OPENCLAW_GATEWAY_TOKEN`
+- **Facture/DOCX** : service Python génère rapports et factures
+
+---
+
 ## 📚 Documentation
 
 - **OpenClaw** : https://docs.openclaw.ai
@@ -295,9 +392,12 @@ docker-compose up -d --force-recreate --scale nom_du_service=1
 - **n8n** : https://docs.n8n.io
 - **Grafana** : https://grafana.com/docs
 - **Qdrant** : https://qdrant.tech/documentation
+- **RC Pro** : `/path/to/rcpro-app/README.md`
 
 ---
 
 ## 🤝 Support
 
-Issues GitHub : https://github.com/Manderley-LTA/claw/issues
+Issues GitHub :
+- OpenClaw : https://github.com/Manderley-LTA/claw/issues
+- RC Pro : https://github.com/Manderley-LTA/rcpro-app/issues
